@@ -1,0 +1,38 @@
+[
+    {
+      "instruction": "hollow-assassin111",
+      "reference_image": "assassin.jpg",
+      "images": [
+        "hollow knight.jpg",
+        "img002.jpg",
+        "img003.jpg"
+      ]
+    },
+    {
+      "instruction": "stein 2222",
+      "reference_image": "steingate.jpg",
+      "images": [
+        "assistance.jpg",
+        "img005.jpg",
+        "img006.jpg"
+      ]
+    },
+    {
+      "instruction": "goose，33333",
+      "reference_image": "goose duck.png",
+      "images": [
+        "celeste.jpg",
+        "img005.jpg",
+        "img006.jpg"
+      ]
+    },
+    {
+      "instruction": "44444",
+      "reference_image": "ref002.jpg",
+      "images": [
+        "img004.jpg",
+        "img005.jpg",
+        "img006.jpg"
+      ]
+    }
+  ]

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>图片分组排序标注</title>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:18px}
+    .instruction{font-size:18px;margin-bottom:12px}
+    .group-info{margin-bottom:8px;color:#666}
+    #image-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    @media (max-width: 600px) {
+      #image-list {
+        flex-direction: column;  /* 垂直排列 */
+        align-items: center;     /* 居中显示 */
+      }
+
+      .image-item {
+        width: 90%;       /* 手机端占据屏幕宽度 */
+        max-width: 300px; /* 不要太大，方便拖拽 */
+      }
+
+      .image-item img {
+        height: auto;     /* 高度自适应 */
+        max-height: 200px;
+      }
+    }
+    #reference-container .image-item {
+      cursor: default; /* 禁止拖拽 */
+    }
+    .image-item{width:160px;cursor:grab; border:1px solid #ddd;border-radius:6px;overflow:hidden;text-align:center}
+    .image-item img{width:100%;height:120px;object-fit:cover;display:block}
+    .image-caption{font-size:12px;padding:6px 4px}
+    .controls{margin-top:14px}
+    button{padding:10px 16px;margin:6px;font-size: 16px;}
+    #status{margin-top:10px;color:#444}
+  </style>
+</head>
+<body>
+  <h2>图片风格评估（拖拽排序）</h2>
+  <div id="user-badge" style="margin:6px 0;color:#333;"></div>
+  <div class="group-info">
+    <span id="group-counter">Group: - / -</span>
+  </div>
+  <div class="instruction" id="instruction">指令加载中...</div>
+
+  <div id="reference-container" style="display:flex; gap:12px; margin-bottom:12px;"></div>
+  <div id="image-list"></div>
+
+  <div class="controls">
+    <button id="submitBtn">提交本组结果</button>
+    <button id="nextBtn">跳过并下一组</button>
+    <button id="refreshBtn">重新加载本组</button>
+    <button onclick="switchUser()">切换标注者</button>
+    <button id="resetBtn">从头开始标注</button>
+  </div>
+
+  <div id="status"></div>
+
+<script>
+let currentGroup = null;
+let currentGroupId = null;
+let totalGroups = 0;
+
+function setStatus(text, isError=false){
+  const s = document.getElementById('status');
+  s.textContent = text;
+  s.style.color = isError ? 'crimson' : '#333';
+}
+
+async function loadNextGroup() {
+  setStatus('加载下一组...');
+  const res = await fetch('/get_next_group');
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({error: '未知错误'}));
+    if (err.error && err.error.includes('No more groups')) {
+      setStatus('恭喜！所有组已标注完成', false);  // 绿色提示
+    } else {
+      setStatus('加载出错：' + (err.error || err), true);  // 红色错误
+    }
+    return;
+  }
+  const data = await res.json();
+  renderGroup(data);
+}
+
+async function loadGroupById(id) {
+  setStatus('加载中...');
+  const res = await fetch('/get_group/' + id);
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({error: '未知错误'}));
+    setStatus('加载出错：' + (err.error || err), true);
+    return;
+  }
+  const data = await res.json();
+  renderGroup(data);
+}
+
+function renderGroup(data){
+  currentGroup = data;
+  currentGroupId = data.id;
+  totalGroups = data.total_groups || totalGroups;
+  document.getElementById('instruction').textContent = data.instruction || '(无指令)';
+  document.getElementById('group-counter').textContent = `Group: ${data.id + 1} / ${totalGroups}`;
+  const refContainer = document.getElementById('reference-container');
+  const list = document.getElementById('image-list');
+  refContainer.innerHTML = '';
+  list.innerHTML = '';
+
+  // ref images
+  if (data.reference_image) {
+    const refDiv = document.createElement('div');
+    refDiv.className = 'image-item';
+    const refImg = document.createElement('img');
+    refImg.src = '/serve_image?path=' + encodeURIComponent(data.reference_image);
+    refDiv.appendChild(refImg);
+    // 可加文字标注 "参考图"，也可不加
+    const label = document.createElement('div');
+    label.style.fontSize='12px';
+    label.style.textAlign='center';
+    label.textContent = '参考图';
+    refDiv.appendChild(label);
+    refContainer.appendChild(refDiv);
+  }
+
+  // add images
+  (data.images || []).forEach((p,i)=>{
+    const item = document.createElement('div');
+    item.className = 'image-item';
+    item.dataset.path = p;
+    const img = document.createElement('img');
+    // use your existing serve_image endpoint
+    img.src = '/serve_image?path=' + encodeURIComponent(p);
+    // const cap = document.createElement('div');
+    // cap.className = 'image-caption';
+    // cap.textContent = p.split('/').pop();
+    item.appendChild(img);
+    // item.appendChild(cap);
+    list.appendChild(item);
+  });
+  // make sortable
+  new Sortable(list, {animation:150});
+  setStatus('已加载本组，可拖拽调整顺序');
+}
+
+document.getElementById('submitBtn').addEventListener('click', async ()=>{
+  if (!currentGroup) return setStatus('当前没有可提交的组', true);
+  const items = document.querySelectorAll('#image-list .image-item');
+  const sorted = Array.from(items).map(it => it.dataset.path);
+  // ask for user id (optional)
+  // const user = prompt('请输入你的标注者 ID（可留空默认为 anonymous）') || 'anonymous';
+  setStatus('正在提交...');
+  try {
+    const res = await fetch('/submit_group', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        group_id: currentGroupId,
+        instruction: currentGroup.instruction,
+        sorted_images: sorted,
+        //user_id: user
+      })
+    });
+    const j = await res.json();
+    if (res.ok && j.success) {
+      setStatus('提交成功，自动加载下一组');
+      // 自动加载下一组
+      setTimeout(()=>loadNextGroup(), 600);
+    } else {
+      setStatus('提交失败：' + (j.error || '未知'), true);
+    }
+  } catch (e) {
+    setStatus('提交异常：' + e.message, true);
+  }
+});
+
+document.getElementById('nextBtn').addEventListener('click', ()=>{
+  loadNextGroup();
+});
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  if (currentGroupId !== null) loadGroupById(currentGroupId);
+});
+
+// 页面加载时，先请求 groups count（用于显示），然后拉第一组
+window.addEventListener('load', async ()=>{
+  const ok = await ensureUserLoggedIn();
+  if (!ok) return; // 未登录就不继续
+
+  try {
+    const resp = await fetch('/get_groups_count');
+    const j = await resp.json();
+    totalGroups = j.total_groups || 0;
+  } catch(e){}
+  loadNextGroup();
+});
+
+// for userid 
+async function ensureUserLoggedIn() {
+    // 先看看后端 session 是否已有 user_id
+    try {
+      const who = await fetch('/whoami').then(r => r.json());
+      if (who.user_id) {
+        document.getElementById('user-badge').textContent = '当前标注者：' + who.user_id;
+        return true;
+      }
+    } catch (e) {
+      // 忽略，下面会走登录流程
+    }
+
+    // 没有则弹一次
+    let uid = '';
+    while (!uid) {
+      uid = prompt('请输入您的标注者 ID（必填）：');
+      if (uid === null) { // 用户点取消
+        alert('需要提供标注者ID才能继续');
+        return false;
+      }
+      uid = uid.trim();
+    }
+
+    // 写入后端 session
+    const res = await fetch('/set_user', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid})
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(()=>({error:'未知错误'}));
+      alert('设置 user_id 失败：' + (j.error || res.status));
+      return false;
+    }
+    document.getElementById('user-badge').textContent = '当前标注者：' + uid;
+    return true;
+  }
+
+  async function switchUser() {
+    await fetch('/logout_user', {method:'POST'});
+    await ensureUserLoggedIn();
+    // 你也可以选择刷新当前组
+    if (currentGroupId !== null) loadGroupById(currentGroupId);
+  }
+//end
+
+// for reset annotation process
+document.getElementById('resetBtn').addEventListener('click', async ()=>{
+  if (!confirm('确定要从头开始标注吗？当前进度将重置，但已提交的结果不会删除。')) return;
+
+  setStatus('正在重置标注进度...');
+  try {
+    const res = await fetch('/reset_progress', {method:'POST'});
+    const j = await res.json();
+    if (res.ok && j.success) {
+      setStatus('标注进度已重置，加载第一组');
+      loadNextGroup();  // 重置后直接加载第 1 组
+    } else {
+      setStatus('重置失败：' + (j.error || '未知'), true);
+    }
+  } catch (e) {
+    setStatus('重置异常：' + e.message, true);
+  }
+});
+// end
+</script>
+</body>
+</html>
