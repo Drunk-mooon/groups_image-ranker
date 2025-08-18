@@ -262,4 +262,4 @@ def export_results():
 if __name__ == '__main__':
     # 初始化 groups（默认使用 IMAGE_FOLDER）
     initialize_image_groups(IMAGE_FOLDER)
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

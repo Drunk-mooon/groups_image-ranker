@@ -16,3 +16,8 @@ timestamp,group_id,instruction,user_id,sorted_images_joined
 2025-08-18T16:50:38.573453,0,44444,2,static/images/img005.jpg|static/images/img006.jpg|static/images/img004.jpg
 2025-08-18T16:50:39.834678,1,写实风格，2222,2,static/images/img004.jpg|static/images/img005.jpg|static/images/img006.jpg
 2025-08-18T16:50:41.024146,2,卡通风格，111,2,static/images/img003.jpg|static/images/img002.jpg|static/images/img001.jpg
+2025-08-18T17:30:39.064775,0,stein 2222,2,static/images/img005.jpg|static/images/assistance.jpg|static/images/img006.jpg
+2025-08-18T17:30:39.490121,0,stein 2222,2,static/images/img005.jpg|static/images/assistance.jpg|static/images/img006.jpg
+2025-08-18T17:30:39.916924,1,goose，33333,2,static/images/img005.jpg|static/images/img006.jpg|static/images/celeste.jpg
+2025-08-18T17:30:40.601838,3,hollow-assassin111,2,static/images/img003.jpg|static/images/img002.jpg|static/images/hollow knight.jpg
+2025-08-18T17:30:41.561616,3,hollow-assassin111,2,static/images/img003.jpg|static/images/img002.jpg|static/images/hollow knight.jpg

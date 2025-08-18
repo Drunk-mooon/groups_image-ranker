@@ -54,7 +54,7 @@
 
   <div class="controls">
     <button id="submitBtn">提交本组结果</button>
-    <button id="nextBtn">跳过并下一组</button>
+    <!-- <button id="nextBtn">跳过并下一组</button> -->
     <button id="refreshBtn">重新加载本组</button>
     <button onclick="switchUser()">切换标注者</button>
     <button id="resetBtn">从头开始标注</button>
@@ -179,9 +179,10 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
   }
 });
 
-document.getElementById('nextBtn').addEventListener('click', ()=>{
-  loadNextGroup();
-});
+const nextBtn = document.getElementById('nextBtn');
+if (nextBtn) {
+    nextBtn.addEventListener('click', ()=>{ loadNextGroup(); });
+}
 document.getElementById('refreshBtn').addEventListener('click', ()=>{
   if (currentGroupId !== null) loadGroupById(currentGroupId);
 });
