@@ -1,6 +1,7 @@
 [
     {
       "instruction": "hollow-assassin111",
+      "instruction_cn": "请按风格从 A 到 Z 排序图片",
       "reference_image": "assassin.jpg",
       "images": [
         "hollow knight.jpg",
@@ -10,6 +11,7 @@
     },
     {
       "instruction": "stein 2222",
+      "instruction_cn": "请按风格从 A 到 Z 排序图片",
       "reference_image": "steingate.jpg",
       "images": [
         "assistance.jpg",
@@ -19,6 +21,7 @@
     },
     {
       "instruction": "goose，33333",
+      "instruction_cn": "请按风格从 A 到 Z 排序图片",
       "reference_image": "goose duck.png",
       "images": [
         "celeste.jpg",
@@ -28,6 +31,7 @@
     },
     {
       "instruction": "44444",
+      "instruction_cn": "请按风格从 A 到 Z 排序图片",
       "reference_image": "ref002.jpg",
       "images": [
         "img004.jpg",

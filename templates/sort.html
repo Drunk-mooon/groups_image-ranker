@@ -48,12 +48,15 @@
     <span id="group-counter">Group: - / -</span>
   </div>
   <div class="instruction" id="instruction">指令加载中...</div>
+  <div class="instruction" id="instruction_cn" style="font-size:15px;color:#444;margin-bottom:12px;">（中文翻译加载中）</div>
 
   <div id="reference-container" style="display:flex; gap:12px; margin-bottom:12px;"></div>
   <div id="image-list"></div>
 
   <div class="controls">
-    <button id="submitBtn">提交本组结果</button>
+    <button id="prevBtn">上一组</button>
+    <button id="nextBtn">下一组</button>
+    <button id="submitAllBtn" style="display:none;">提交全部结果</button>
     <!-- <button id="nextBtn">跳过并下一组</button> -->
     <button id="refreshBtn">重新加载本组</button>
     <button onclick="switchUser()">切换标注者</button>
@@ -63,9 +66,14 @@
   <div id="status"></div>
 
 <script>
+/* ---------- 状态变量 ---------- */
 let currentGroup = null;
 let currentGroupId = null;
 let totalGroups = 0;
+// 用对象按 id 存储已保存结果（比稀疏数组更稳妥）
+let localResults = {};
+// 存放当前的 Sortable 实例以便销毁
+let currentSortable = null;
 
 function setStatus(text, isError=false){
   const s = document.getElementById('status');
@@ -73,158 +81,173 @@ function setStatus(text, isError=false){
   s.style.color = isError ? 'crimson' : '#333';
 }
 
-async function loadNextGroup() {
-  setStatus('加载下一组...');
-  const res = await fetch('/get_next_group');
-  if (!res.ok) {
-    const err = await res.json().catch(()=>({error: '未知错误'}));
-    if (err.error && err.error.includes('No more groups')) {
-      setStatus('恭喜！所有组已标注完成', false);  // 绿色提示
-    } else {
-      setStatus('加载出错：' + (err.error || err), true);  // 红色错误
-    }
-    return;
-  }
-  const data = await res.json();
-  renderGroup(data);
+/* 保存当前组到 localResults（不发送到后端） */
+function saveCurrentGroup() {
+  if (currentGroup === null || currentGroupId === null) return;
+  const items = document.querySelectorAll('#image-list .image-item');
+  const sorted = Array.from(items).map(it => it.dataset.path);
+  localResults[currentGroupId] = {
+    group_id: currentGroupId,
+    instruction: currentGroup ? currentGroup.instruction : '',
+    instruction_cn: currentGroup ? (currentGroup.instruction_cn || '') : '',
+    sorted_images: sorted
+  };
 }
 
+/* 通过 id 拉取并渲染组（主渲染函数） */
 async function loadGroupById(id) {
+  if (id === null || id === undefined) return;
   setStatus('加载中...');
-  const res = await fetch('/get_group/' + id);
-  if (!res.ok) {
-    const err = await res.json().catch(()=>({error: '未知错误'}));
-    setStatus('加载出错：' + (err.error || err), true);
-    return;
+  try {
+    const res = await fetch('/get_group/' + encodeURIComponent(id));
+    if (!res.ok) {
+      const j = await res.json().catch(()=>({error: '未知错误'}));
+      setStatus('加载出错：' + (j.error || res.status), true);
+      return;
+    }
+    const data = await res.json();
+    renderGroup(data);
+  } catch (e) {
+    setStatus('加载异常：' + e.message, true);
   }
-  const data = await res.json();
-  renderGroup(data);
 }
 
+/* 渲染组（安全、幂等） */
 function renderGroup(data){
+  // 基本赋值
   currentGroup = data;
   currentGroupId = data.id;
   totalGroups = data.total_groups || totalGroups;
+
+  // 更新 UI 文案
   document.getElementById('instruction').textContent = data.instruction || '(无指令)';
+  document.getElementById('instruction_cn').textContent = data.instruction_cn || ''; // 新增
   document.getElementById('group-counter').textContent = `Group: ${data.id + 1} / ${totalGroups}`;
+
   const refContainer = document.getElementById('reference-container');
   const list = document.getElementById('image-list');
+
+  // 清空容器
   refContainer.innerHTML = '';
   list.innerHTML = '';
 
-  // ref images
+  // 参考图（若有）
   if (data.reference_image) {
     const refDiv = document.createElement('div');
     refDiv.className = 'image-item';
     const refImg = document.createElement('img');
     refImg.src = '/serve_image?path=' + encodeURIComponent(data.reference_image);
     refDiv.appendChild(refImg);
-    // 可加文字标注 "参考图"，也可不加
     const label = document.createElement('div');
-    label.style.fontSize='12px';
+    label.style.fontSize='15px';
     label.style.textAlign='center';
     label.textContent = '参考图';
     refDiv.appendChild(label);
     refContainer.appendChild(refDiv);
   }
 
-  // add images
-  (data.images || []).forEach((p,i)=>{
+  // 决定渲染顺序：若 localResults 有保存则用保存的顺序，否则用后端发来的 data.images
+  const imagesToRender = (localResults.hasOwnProperty(data.id) && Array.isArray(localResults[data.id].sorted_images))
+                         ? localResults[data.id].sorted_images
+                         : (data.images || []);
+
+  // 渲染图片项
+  imagesToRender.forEach(p=>{
     const item = document.createElement('div');
     item.className = 'image-item';
     item.dataset.path = p;
     const img = document.createElement('img');
-    // use your existing serve_image endpoint
     img.src = '/serve_image?path=' + encodeURIComponent(p);
-    // const cap = document.createElement('div');
-    // cap.className = 'image-caption';
-    // cap.textContent = p.split('/').pop();
     item.appendChild(img);
-    // item.appendChild(cap);
     list.appendChild(item);
   });
-  // make sortable
-  new Sortable(list, {animation:150});
+
+  // 销毁上一个 Sortable（如果存在）
+  if (currentSortable && typeof currentSortable.destroy === 'function') {
+    try { currentSortable.destroy(); } catch(e){ /* ignore */ }
+    currentSortable = null;
+  }
+  // 初始化新的 Sortable
+  currentSortable = new Sortable(list, {animation:150});
+
   setStatus('已加载本组，可拖拽调整顺序');
 }
 
-document.getElementById('submitBtn').addEventListener('click', async ()=>{
-  if (!currentGroup) return setStatus('当前没有可提交的组', true);
-  const items = document.querySelectorAll('#image-list .image-item');
-  const sorted = Array.from(items).map(it => it.dataset.path);
-  // ask for user id (optional)
-  // const user = prompt('请输入你的标注者 ID（可留空默认为 anonymous）') || 'anonymous';
-  setStatus('正在提交...');
+/* 下一组：基于 client-side index（不要调用 /get_next_group） */
+function loadNextGroup(){
+  // 先保存当前组
+  if (currentGroupId !== null && currentGroupId !== undefined) saveCurrentGroup();
+  // 计算目标 id
+  const nextId = (currentGroupId === null || currentGroupId === undefined) ? 0 : currentGroupId + 1;
+  if (typeof totalGroups === 'number' && nextId >= totalGroups) {
+    setStatus('已到最后一组', false);
+    // 显示提交按钮
+    document.getElementById('submitAllBtn').style.display = 'inline-block';
+    return;
+  }
+  loadGroupById(nextId);
+}
+
+/* 绑定控件事件（只绑一次） */
+document.getElementById('prevBtn').addEventListener('click', ()=>{
+  if (currentGroupId > 0) {
+    saveCurrentGroup();
+    loadGroupById(currentGroupId - 1);
+  } else {
+    setStatus('已经是第一组', false);
+  }
+});
+
+document.getElementById('nextBtn').addEventListener('click', ()=>{
+  loadNextGroup();
+});
+
+// 重新加载本组
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  if (currentGroupId !== null && currentGroupId !== undefined) loadGroupById(currentGroupId);
+});
+
+// 提交全部（将 localResults 转为数组发送）
+document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
+  // save current
+  saveCurrentGroup();
+  setStatus('正在提交全部结果...');
   try {
-    const res = await fetch('/submit_group', {
+    const payload = Object.values(localResults).filter(Boolean); // array of results
+    const res = await fetch('/submit_all', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        group_id: currentGroupId,
-        instruction: currentGroup.instruction,
-        sorted_images: sorted,
-        //user_id: user
-      })
+      body: JSON.stringify({results: payload})
     });
     const j = await res.json();
     if (res.ok && j.success) {
-      setStatus('提交成功，自动加载下一组');
-      // 自动加载下一组
-      setTimeout(()=>loadNextGroup(), 600);
+      setStatus('全部结果提交成功！');
     } else {
       setStatus('提交失败：' + (j.error || '未知'), true);
     }
-  } catch (e) {
+  } catch(e) {
     setStatus('提交异常：' + e.message, true);
   }
 });
 
-const nextBtn = document.getElementById('nextBtn');
-if (nextBtn) {
-    nextBtn.addEventListener('click', ()=>{ loadNextGroup(); });
-}
-document.getElementById('refreshBtn').addEventListener('click', ()=>{
-  if (currentGroupId !== null) loadGroupById(currentGroupId);
-});
-
-// 页面加载时，先请求 groups count（用于显示），然后拉第一组
-window.addEventListener('load', async ()=>{
-  const ok = await ensureUserLoggedIn();
-  if (!ok) return; // 未登录就不继续
-
-  try {
-    const resp = await fetch('/get_groups_count');
-    const j = await resp.json();
-    totalGroups = j.total_groups || 0;
-  } catch(e){}
-  loadNextGroup();
-});
-
-// for userid 
+/* 用户登陆流程保持不变（你原有的实现） */
 async function ensureUserLoggedIn() {
-    // 先看看后端 session 是否已有 user_id
     try {
       const who = await fetch('/whoami').then(r => r.json());
       if (who.user_id) {
         document.getElementById('user-badge').textContent = '当前标注者：' + who.user_id;
         return true;
       }
-    } catch (e) {
-      // 忽略，下面会走登录流程
-    }
-
-    // 没有则弹一次
+    } catch (e) {}
     let uid = '';
     while (!uid) {
       uid = prompt('请输入您的标注者 ID（必填）：');
-      if (uid === null) { // 用户点取消
+      if (uid === null) {
         alert('需要提供标注者ID才能继续');
         return false;
       }
       uid = uid.trim();
     }
-
-    // 写入后端 session
     const res = await fetch('/set_user', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -237,27 +260,26 @@ async function ensureUserLoggedIn() {
     }
     document.getElementById('user-badge').textContent = '当前标注者：' + uid;
     return true;
-  }
+}
 
-  async function switchUser() {
-    await fetch('/logout_user', {method:'POST'});
-    await ensureUserLoggedIn();
-    // 你也可以选择刷新当前组
-    if (currentGroupId !== null) loadGroupById(currentGroupId);
-  }
-//end
+async function switchUser() {
+  await fetch('/logout_user', {method:'POST'});
+  await ensureUserLoggedIn();
+  if (currentGroupId !== null && currentGroupId !== undefined) loadGroupById(currentGroupId);
+}
 
-// for reset annotation process
+/* 重置进度 */
 document.getElementById('resetBtn').addEventListener('click', async ()=>{
   if (!confirm('确定要从头开始标注吗？当前进度将重置，但已提交的结果不会删除。')) return;
-
   setStatus('正在重置标注进度...');
   try {
     const res = await fetch('/reset_progress', {method:'POST'});
     const j = await res.json();
     if (res.ok && j.success) {
       setStatus('标注进度已重置，加载第一组');
-      loadNextGroup();  // 重置后直接加载第 1 组
+      // 清本地记录（只会影响当前客户端）
+      localResults = {};
+      loadGroupById(0);
     } else {
       setStatus('重置失败：' + (j.error || '未知'), true);
     }
@@ -265,7 +287,19 @@ document.getElementById('resetBtn').addEventListener('click', async ()=>{
     setStatus('重置异常：' + e.message, true);
   }
 });
-// end
+
+/* 页面载入时行为：先登录 -> 获取总数 -> 加载第1组（id=0） */
+window.addEventListener('load', async ()=>{
+  const ok = await ensureUserLoggedIn();
+  if (!ok) return;
+  try {
+    const resp = await fetch('/get_groups_count');
+    const j = await resp.json();
+    totalGroups = j.total_groups || 0;
+  } catch(e){}
+  // 直接用 client-side 索引加载第 0 组
+  loadGroupById(0);
+});
 </script>
 </body>
 </html>

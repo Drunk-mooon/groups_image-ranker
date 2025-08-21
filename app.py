@@ -39,6 +39,7 @@ def load_groups_from_json_file(directory):
         groups = []
         for i, g in enumerate(raw):
             instr = g.get('instruction', '')
+            instr_cn = g.get('instruction_cn', '')
             imgs = []
             for p in g.get('images', []):
                 if not os.path.isabs(p):
@@ -53,7 +54,11 @@ def load_groups_from_json_file(directory):
                 ref_img = os.path.normpath(ref_img).replace('\\', '/')
                 if not os.path.exists(ref_img):
                     ref_img = ''  # 不存在则置空
-            groups.append({'id': i, 'instruction': instr, 'images': imgs, 'reference_image': ref_img})
+            groups.append({'id': i, 
+                           'instruction': instr, 
+                           'instruction_cn': instr_cn,
+                           'images': imgs, 
+                           'reference_image': ref_img})
         return groups
     except Exception as e:
         app.logger.error(f"Failed to parse groups.json: {e}")
@@ -75,7 +80,10 @@ def auto_create_groups_from_directory(directory, group_size=DEFAULT_GROUP_SIZE):
     gid = 0
     for i in range(0, len(image_paths), group_size):
         imgs = image_paths[i:i+group_size]
-        groups.append({'id': gid, 'instruction': f'Default instruction for group {gid}', 'images': imgs})
+        groups.append({'id': gid, 
+                       'instruction': f'instruction loss for group {gid}',
+                       'instruction_cn': '错误：命令丢失', 
+                       'images': imgs})
         gid += 1
     return groups
 
@@ -118,11 +126,15 @@ def get_group(group_id):
         if group_id < 0 or group_id >= len(image_groups):
             return jsonify({'error': 'Invalid group_id or no more groups'}), 400
         g = image_groups[group_id]
+        # 每次获取时打乱图片顺序
+        images_copy = g.get('images', []).copy()
+        random.shuffle(images_copy)
         return jsonify({
             'id': g['id'],
             'instruction': g.get('instruction', ''),
-            'images': g.get('images', []),
-            'reference_image': g.get('reference_image', ''),  # <--- 加上这行
+            'instruction_cn': g.get('instruction_cn', ''),  # 新增
+            'images': images_copy,
+            'reference_image': g.get('reference_image', ''),
             'total_groups': len(image_groups)
         })
 
@@ -248,6 +260,37 @@ def reset_progress():
     with image_groups_lock:
         current_group_index = 0
     return jsonify({'success': True})
+
+@app.route('/submit_all', methods=['POST'])
+def submit_all():
+    data = request.json
+    results = data.get('results', [])
+    user_id = session.get('user_id', 'anonymous')
+    out_dir = current_directory if current_directory else '.'
+    results_file = os.path.join(out_dir, 'results.csv')
+    timestamp = datetime.now().isoformat()
+
+    if not isinstance(results, list):
+        return jsonify({'error': 'Invalid results payload'}), 400
+
+    try:
+        new_file = not os.path.exists(results_file)
+        with open(results_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if new_file:
+                writer.writerow(['timestamp', 'group_id', 'instruction', 'user_id', 'sorted_images_joined'])
+            for r in results:
+                writer.writerow([
+                    timestamp,
+                    r.get('group_id'),
+                    r.get('instruction', ''),
+                    user_id,
+                    '|'.join(r.get('sorted_images', []))
+                ])
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error(f'Failed to save all results: {e}')
+        return jsonify({'error': str(e)}), 500
 
 # 可选：导出已收集的 results.csv
 @app.route('/export_results')
