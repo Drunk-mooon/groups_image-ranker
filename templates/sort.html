@@ -74,6 +74,8 @@ let totalGroups = 0;
 let localResults = {};
 // 存放当前的 Sortable 实例以便销毁
 let currentSortable = null;
+// 存放计时器
+let groupTimers = {};
 
 function setStatus(text, isError=false){
   const s = document.getElementById('status');
@@ -86,13 +88,33 @@ function saveCurrentGroup() {
   if (currentGroup === null || currentGroupId === null) return;
   const items = document.querySelectorAll('#image-list .image-item');
   const sorted = Array.from(items).map(it => it.dataset.path);
-  localResults[currentGroupId] = {
-    group_id: currentGroupId,
+
+  // 计算时间
+  let started_iso = null;
+  let time_spent_seconds = null;
+  const origKey = currentGroup && currentGroup.orig_id !== undefined ? String(currentGroup.orig_id) : String(currentGroupId);
+
+  if (groupTimers[origKey]) {
+    started_iso = groupTimers[origKey].started_at_iso;
+    const started_ms = groupTimers[origKey].started_at_ms;
+    const now_ms = Date.now();
+    time_spent_seconds = Math.round((now_ms - started_ms) / 1000 * 100) / 100;
+  }
+
+  const submitted_iso = new Date().toISOString();
+
+  // 把 localResults 以 origKey 为键保存
+  localResults[origKey] = {
+    group_id: currentGroup && currentGroup.orig_id !== undefined ? currentGroup.orig_id : currentGroupId,
     instruction: currentGroup ? currentGroup.instruction : '',
     instruction_cn: currentGroup ? (currentGroup.instruction_cn || '') : '',
-    sorted_images: sorted
+    sorted_images: sorted,
+    started_at: started_iso,
+    submitted_at: submitted_iso,
+    time_spent_seconds: time_spent_seconds
   };
 }
+
 
 /* 通过 id 拉取并渲染组（主渲染函数） */
 async function loadGroupById(id) {
@@ -146,10 +168,10 @@ function renderGroup(data){
     refContainer.appendChild(refDiv);
   }
 
-  // 决定渲染顺序：若 localResults 有保存则用保存的顺序，否则用后端发来的 data.images
-  const imagesToRender = (localResults.hasOwnProperty(data.id) && Array.isArray(localResults[data.id].sorted_images))
-                         ? localResults[data.id].sorted_images
-                         : (data.images || []);
+  const origKey = String(data.orig_id); // 固定组 id（来自 groups.json）
+  const imagesToRender = (localResults.hasOwnProperty(origKey) && Array.isArray(localResults[origKey].sorted_images))
+                       ? localResults[origKey].sorted_images
+                       : (data.images || []);
 
   // 渲染图片项
   imagesToRender.forEach(p=>{
@@ -170,6 +192,14 @@ function renderGroup(data){
   // 初始化新的 Sortable
   currentSortable = new Sortable(list, {animation:150});
 
+  //计时器
+  if (!groupTimers.hasOwnProperty(data.id)) {
+    const now = Date.now();
+    groupTimers[data.id] = {
+      started_at_ms: now,
+      started_at_iso: new Date(now).toISOString()
+    };
+  }
   setStatus('已加载本组，可拖拽调整顺序');
 }
 
@@ -209,11 +239,10 @@ document.getElementById('refreshBtn').addEventListener('click', ()=>{
 
 // 提交全部（将 localResults 转为数组发送）
 document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
-  // save current
-  saveCurrentGroup();
+  saveCurrentGroup(); // 保存当前组
   setStatus('正在提交全部结果...');
   try {
-    const payload = Object.values(localResults).filter(Boolean); // array of results
+    const payload = Object.values(localResults).filter(Boolean);
     const res = await fetch('/submit_all', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -221,7 +250,7 @@ document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
     });
     const j = await res.json();
     if (res.ok && j.success) {
-      setStatus('全部结果提交成功！');
+      setStatus('全部结果提交成功！ 文件已保存：' + (j.saved_to || 'results.json'));
     } else {
       setStatus('提交失败：' + (j.error || '未知'), true);
     }
