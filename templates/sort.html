@@ -16,22 +16,20 @@
     }
     @media (max-width: 600px) {
       #image-list {
-        flex-direction: column;  /* 垂直排列 */
-        align-items: center;     /* 居中显示 */
+        flex-direction: column;
+        align-items: center;
       }
-
       .image-item {
-        width: 90%;       /* 手机端占据屏幕宽度 */
-        max-width: 300px; /* 不要太大，方便拖拽 */
+        width: 90%;
+        max-width: 300px;
       }
-
       .image-item img {
-        height: auto;     /* 高度自适应 */
+        height: auto;
         max-height: 200px;
       }
     }
     #reference-container .image-item {
-      cursor: default; /* 禁止拖拽 */
+      cursor: default;
     }
     .image-item{width:160px;cursor:grab; border:1px solid #ddd;border-radius:6px;overflow:hidden;text-align:center}
     .image-item img{width:100%;height:120px;object-fit:cover;display:block}
@@ -57,7 +55,6 @@
     <button id="prevBtn">上一组</button>
     <button id="nextBtn">下一组</button>
     <button id="submitAllBtn" style="display:none;">提交全部结果</button>
-    <!-- <button id="nextBtn">跳过并下一组</button> -->
     <button id="refreshBtn">重新加载本组</button>
     <button onclick="switchUser()">切换标注者</button>
     <button id="resetBtn">从头开始标注</button>
@@ -67,33 +64,118 @@
 
 <script>
 /* ---------- 状态变量 ---------- */
-let currentGroup = null;
-let currentGroupId = null;
+let currentGroup = null;          // 当前从后端得到的组数据（含 orig_id）
+let currentOrigId = null;         // 使用固定的 orig_id 做为客户端 key
 let totalGroups = 0;
-// 用对象按 id 存储已保存结果（比稀疏数组更稳妥）
-let localResults = {};
-// 存放当前的 Sortable 实例以便销毁
-let currentSortable = null;
-// 存放计时器
-let groupTimers = {};
+let currentUserId = null;         // 当前登录的 user_id（用于 localStorage key）
 
+// 每个客户端（当前浏览器会话）维护的访问历史与集合（互不影响其他客户端）
+let visitedOrder = [];            // 按访问顺序保存 orig_id（例如 [3,7,1,...]）
+let visitedPos = -1;              // 指向 visitedOrder 中的当前位置（-1 表示空）
+let unvisitedSet = new Set();     // 未访问的 orig_id 集合（字符串形式或数字均可）
+let visitedCache = {};            // 缓存已请求到的组数据： visitedCache[orig_id] = data
+
+// 已保存的用户对每个组的排序与计时（你的现有 localResults 结构）
+let localResults = {};            // keyed by orig_id string -> {sorted_images, ...}
+let currentSortable = null;
+let groupTimers = {};             // keyed by orig_id -> {started_at_ms, started_at_iso}
+
+/* ---------- localStorage helpers (按 user_id 分区) ---------- */
+function storageKeyForUser(userId) {
+  if (!userId) return null;
+  return 'labeler_state_' + encodeURIComponent(userId);
+}
+
+function saveStateForUser() {
+  if (!currentUserId) return;
+  try {
+    const key = storageKeyForUser(currentUserId);
+    const payload = {
+      visitedOrder: visitedOrder.slice(),
+      visitedPos: visitedPos,
+      localResults: localResults,
+      saved_at: new Date().toISOString()
+    };
+    localStorage.setItem(key, JSON.stringify(payload));
+    //console.log('state saved for', currentUserId);
+  } catch (e) {
+    console.warn('保存本地状态失败', e);
+  }
+}
+
+function loadStateForUser() {
+  if (!currentUserId) return false;
+  const key = storageKeyForUser(currentUserId);
+  const raw = localStorage.getItem(key);
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    // 基本验证并恢复（但要根据 totalGroups 做边界修正）
+    let vOrder = Array.isArray(parsed.visitedOrder) ? parsed.visitedOrder.map(x=>parseInt(x,10)).filter(x=>!Number.isNaN(x)) : [];
+    // 过滤超出 totalGroups 的 id（如果 totalGroups 可用）
+    if (typeof totalGroups === 'number' && totalGroups > 0) {
+      vOrder = vOrder.filter(id => id >= 0 && id < totalGroups);
+    }
+    visitedOrder = vOrder;
+    // visitedPos 如果无效则修正为最后一项
+    let vPos = typeof parsed.visitedPos === 'number' ? parsed.visitedPos : -1;
+    if (visitedOrder.length === 0) {
+      vPos = -1;
+    } else {
+      if (vPos < 0 || vPos >= visitedOrder.length) vPos = visitedOrder.length - 1;
+    }
+    visitedPos = vPos;
+    // 恢复 localResults（确保 key 都是字符串）
+    localResults = {};
+    if (parsed.localResults && typeof parsed.localResults === 'object') {
+      for (let k in parsed.localResults) {
+        if (!parsed.localResults.hasOwnProperty(k)) continue;
+        try {
+          localResults[String(k)] = parsed.localResults[k];
+        } catch (e) { /* ignore malformed */ }
+      }
+    }
+    // 重建 unvisitedSet：全部 id 减去 visitedOrder
+    if (typeof totalGroups === 'number' && totalGroups > 0) {
+      const all = Array.from({length: totalGroups}, (_,i)=>String(i));
+      const visitedSet = new Set(visitedOrder.map(x=>String(x)));
+      unvisitedSet = new Set(all.filter(x => !visitedSet.has(x)));
+    } else {
+      // 若 totalGroups 未知，暂不填充 unvisitedSet（将在获取 totalGroups 后填充）
+      unvisitedSet = new Set();
+    }
+    // don't restore visitedCache (will be filled on demand)
+    visitedCache = {};
+    return true;
+  } catch (e) {
+    console.warn('加载本地状态失败', e);
+    return false;
+  }
+}
+
+function clearStateForUser() {
+  if (!currentUserId) return;
+  const key = storageKeyForUser(currentUserId);
+  localStorage.removeItem(key);
+}
+
+/* UI helper */
 function setStatus(text, isError=false){
   const s = document.getElementById('status');
   s.textContent = text;
   s.style.color = isError ? 'crimson' : '#333';
 }
 
-/* 保存当前组到 localResults（不发送到后端） */
+/* 保存当前组到 localResults（仅客户端缓存） */
 function saveCurrentGroup() {
-  if (currentGroup === null || currentGroupId === null) return;
+  if (currentOrigId === null || currentOrigId === undefined) return;
   const items = document.querySelectorAll('#image-list .image-item');
   const sorted = Array.from(items).map(it => it.dataset.path);
 
-  // 计算时间
+  const origKey = String(currentOrigId);
+
   let started_iso = null;
   let time_spent_seconds = null;
-  const origKey = currentGroup && currentGroup.orig_id !== undefined ? String(currentGroup.orig_id) : String(currentGroupId);
-
   if (groupTimers[origKey]) {
     started_iso = groupTimers[origKey].started_at_iso;
     const started_ms = groupTimers[origKey].started_at_ms;
@@ -103,9 +185,8 @@ function saveCurrentGroup() {
 
   const submitted_iso = new Date().toISOString();
 
-  // 把 localResults 以 origKey 为键保存
   localResults[origKey] = {
-    group_id: currentGroup && currentGroup.orig_id !== undefined ? currentGroup.orig_id : currentGroupId,
+    group_id: currentOrigId,
     instruction: currentGroup ? currentGroup.instruction : '',
     instruction_cn: currentGroup ? (currentGroup.instruction_cn || '') : '',
     sorted_images: sorted,
@@ -113,52 +194,44 @@ function saveCurrentGroup() {
     submitted_at: submitted_iso,
     time_spent_seconds: time_spent_seconds
   };
+
+  // 持久化当前用户状态
+  saveStateForUser();
 }
 
-
-/* 通过 id 拉取并渲染组（主渲染函数） */
-async function loadGroupById(id) {
-  if (id === null || id === undefined) return;
-  setStatus('加载中...');
-  try {
-    const res = await fetch('/get_group/' + encodeURIComponent(id));
-    if (!res.ok) {
-      const j = await res.json().catch(()=>({error: '未知错误'}));
-      setStatus('加载出错：' + (j.error || res.status), true);
-      return;
-    }
-    const data = await res.json();
-    renderGroup(data);
-  } catch (e) {
-    setStatus('加载异常：' + e.message, true);
-  }
-}
-
-/* 渲染组（安全、幂等） */
-function renderGroup(data){
-  // 基本赋值
+/* 渲染组（前端使用缓存或直接从 /get_group_by_orig 返回的数据渲染） */
+function renderGroupFromData(data){
   currentGroup = data;
-  currentGroupId = data.id;
+  currentOrigId = data.orig_id;
   totalGroups = data.total_groups || totalGroups;
 
-  // 更新 UI 文案
   document.getElementById('instruction').textContent = data.instruction || '(无指令)';
-  document.getElementById('instruction_cn').textContent = data.instruction_cn || ''; // 新增
-  document.getElementById('group-counter').textContent = `Group: ${data.id + 1} / ${totalGroups}`;
+  document.getElementById('instruction_cn').textContent = data.instruction_cn || '';
+
+  // 计算“用户视角”的序号：优先用 visitedOrder 的位置，
+  // 若找不到，则回退到 visitedPos（如果有），否则显示 1（首次）
+  let displayIndex = 1;
+  const idxInVisited = visitedOrder.indexOf(data.orig_id);
+  if (idxInVisited !== -1) {
+    displayIndex = idxInVisited + 1;
+  } else if (visitedPos >= 0) {
+    displayIndex = visitedPos + 1;
+  } else {
+    displayIndex = 1;
+  }
+  document.getElementById('group-counter').textContent = `Group: ${displayIndex} / ${totalGroups}`;
 
   const refContainer = document.getElementById('reference-container');
   const list = document.getElementById('image-list');
 
-  // 清空容器
   refContainer.innerHTML = '';
   list.innerHTML = '';
 
-  // 参考图（若有）
   if (data.reference_image) {
     const refDiv = document.createElement('div');
     refDiv.className = 'image-item';
     const refImg = document.createElement('img');
-    refImg.src = '/serve_image?path=' + encodeURIComponent(data.reference_image);
+    refImg.src = data.reference_image;
     refDiv.appendChild(refImg);
     const label = document.createElement('div');
     label.style.fontSize='15px';
@@ -168,18 +241,19 @@ function renderGroup(data){
     refContainer.appendChild(refDiv);
   }
 
-  const origKey = String(data.orig_id); // 固定组 id（来自 groups.json）
-  const imagesToRender = (localResults.hasOwnProperty(origKey) && Array.isArray(localResults[origKey].sorted_images))
-                       ? localResults[origKey].sorted_images
-                       : (data.images || []);
+  const origKey = String(data.orig_id);
 
-  // 渲染图片项
+  // 如果之前在 localResults 中有保存排序，则按保存的顺序渲染；否则使用后端返回的 images 顺序
+  const imagesToRender = (localResults.hasOwnProperty(origKey) && Array.isArray(localResults[origKey].sorted_images))
+                        ? localResults[origKey].sorted_images
+                        : (Array.isArray(data.images) ? data.images.slice() : []);
+
   imagesToRender.forEach(p=>{
     const item = document.createElement('div');
     item.className = 'image-item';
     item.dataset.path = p;
     const img = document.createElement('img');
-    img.src = '/serve_image?path=' + encodeURIComponent(p);
+    img.src = p;
     item.appendChild(img);
     list.appendChild(item);
   });
@@ -189,57 +263,137 @@ function renderGroup(data){
     try { currentSortable.destroy(); } catch(e){ /* ignore */ }
     currentSortable = null;
   }
-  // 初始化新的 Sortable
   currentSortable = new Sortable(list, {animation:150});
 
-  //计时器
-  if (!groupTimers.hasOwnProperty(data.id)) {
+  // 计时器：按 origKey 保存（保持和 localResults 对应）
+  if (!groupTimers.hasOwnProperty(origKey)) {
     const now = Date.now();
-    groupTimers[data.id] = {
+    groupTimers[origKey] = {
       started_at_ms: now,
       started_at_iso: new Date(now).toISOString()
     };
   }
+
   setStatus('已加载本组，可拖拽调整顺序');
 }
 
-/* 下一组：基于 client-side index（不要调用 /get_next_group） */
+/* 从后端按 orig_id 获取组（并可选择是否把它放进 visitedOrder） */
+async function loadGroupByOrig(orig_id, {pushHistory=true} = {}) {
+  if (orig_id === null || orig_id === undefined) return;
+  setStatus('加载中...');
+  try {
+    // 如果已经缓存过并且希望从缓存读取（且不想重复请求），用缓存
+    if (visitedCache.hasOwnProperty(String(orig_id))) {
+      // 如果是新加入历史（pushHistory）则更新 visitedOrder / unvisitedSet
+      if (pushHistory) {
+        if (visitedPos < visitedOrder.length - 1) {
+          visitedOrder = visitedOrder.slice(0, visitedPos + 1);
+        }
+        visitedOrder.push(orig_id);
+        visitedPos = visitedOrder.length - 1;
+        // 更新 unvisitedSet
+        unvisitedSet.delete(String(orig_id));
+        // 保存状态
+        saveStateForUser();
+      }
+      renderGroupFromData(visitedCache[String(orig_id)]);
+      return;
+    }
+
+    const res = await fetch('/get_group_by_orig/' + encodeURIComponent(orig_id));
+    if (!res.ok) {
+      const j = await res.json().catch(()=>({error: '未知错误'}));
+      setStatus('加载出错：' + (j.error || res.status), true);
+      return;
+    }
+    const data = await res.json();
+
+    // 缓存后端返回的原始数据（不含 localResults 的覆盖）
+    visitedCache[String(orig_id)] = data;
+
+    if (pushHistory) {
+      if (visitedPos < visitedOrder.length - 1) {
+        visitedOrder = visitedOrder.slice(0, visitedPos + 1);
+      }
+      visitedOrder.push(orig_id);
+      visitedPos = visitedOrder.length - 1;
+      unvisitedSet.delete(String(orig_id));
+      // 保存状态
+      saveStateForUser();
+    }
+
+    renderGroupFromData(data);
+  } catch (e) {
+    setStatus('加载异常：' + e.message, true);
+  }
+}
+
+/* 下一组逻辑：若前进到已访问过的历史则回退到历史，否则从 unvisitedSet 随机挑选未访组 */
 function loadNextGroup(){
   // 先保存当前组
-  if (currentGroupId !== null && currentGroupId !== undefined) saveCurrentGroup();
-  // 计算目标 id
-  const nextId = (currentGroupId === null || currentGroupId === undefined) ? 0 : currentGroupId + 1;
-  if (typeof totalGroups === 'number' && nextId >= totalGroups) {
+  if (currentOrigId !== null && currentOrigId !== undefined) saveCurrentGroup();
+
+  // 如果不是在 visitedOrder 的最后一个位置，则直接前进到下一个历史项
+  if (visitedPos < visitedOrder.length - 1) {
+    visitedPos += 1;
+    const nextOrig = visitedOrder[visitedPos];
+    // 从缓存加载（一定已缓存）
+    if (visitedCache.hasOwnProperty(String(nextOrig))) {
+      renderGroupFromData(visitedCache[String(nextOrig)]);
+    } else {
+      loadGroupByOrig(nextOrig, {pushHistory:false});
+    }
+    // 持久化游标变化
+    saveStateForUser();
+    return;
+  }
+
+  // 已到历史末尾 -> 从 unvisitedSet 随机挑选一个未访问组
+  if (unvisitedSet.size === 0) {
     setStatus('已到最后一组', false);
-    // 显示提交按钮
     document.getElementById('submitAllBtn').style.display = 'inline-block';
     return;
   }
-  loadGroupById(nextId);
+  const arr = Array.from(unvisitedSet);
+  const pick = arr[Math.floor(Math.random() * arr.length)];
+  const origPick = parseInt(pick, 10);
+  // load 并 push 到历史（loadGroupByOrig 默认会 pushHistory）
+  loadGroupByOrig(origPick, {pushHistory:true});
 }
 
-/* 绑定控件事件（只绑一次） */
-document.getElementById('prevBtn').addEventListener('click', ()=>{
-  if (currentGroupId > 0) {
-    saveCurrentGroup();
-    loadGroupById(currentGroupId - 1);
+/* 上一组逻辑 */
+function loadPrevGroup(){
+  if (visitedPos > 0) {
+    // 保存当前
+    if (currentOrigId !== null && currentOrigId !== undefined) saveCurrentGroup();
+    visitedPos -= 1;
+    const prevOrig = visitedOrder[visitedPos];
+    if (visitedCache.hasOwnProperty(String(prevOrig))) {
+      renderGroupFromData(visitedCache[String(prevOrig)]);
+    } else {
+      loadGroupByOrig(prevOrig, {pushHistory:false});
+    }
+    // 持久化游标变化
+    saveStateForUser();
   } else {
     setStatus('已经是第一组', false);
   }
+}
+
+/* 绑定控件事件 */
+document.getElementById('prevBtn').addEventListener('click', ()=>{ loadPrevGroup(); });
+document.getElementById('nextBtn').addEventListener('click', ()=>{ loadNextGroup(); });
+
+document.getElementById('refreshBtn').addEventListener('click', ()=> {
+  if (currentOrigId !== null && currentOrigId !== undefined) {
+    // 从后端重新请求并替换缓存（但不改变访问历史位置）
+    loadGroupByOrig(currentOrigId, {pushHistory:false});
+  }
 });
 
-document.getElementById('nextBtn').addEventListener('click', ()=>{
-  loadNextGroup();
-});
-
-// 重新加载本组
-document.getElementById('refreshBtn').addEventListener('click', ()=>{
-  if (currentGroupId !== null && currentGroupId !== undefined) loadGroupById(currentGroupId);
-});
-
-// 提交全部（将 localResults 转为数组发送）
+// 提交全部（把 localResults 转为数组上传）
 document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
-  saveCurrentGroup(); // 保存当前组
+  saveCurrentGroup();
   setStatus('正在提交全部结果...');
   try {
     const payload = Object.values(localResults).filter(Boolean);
@@ -251,6 +405,7 @@ document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
     const j = await res.json();
     if (res.ok && j.success) {
       setStatus('全部结果提交成功！ 文件已保存：' + (j.saved_to || 'results.json'));
+      // 可选：提交成功后清除本地（如果你希望每次提交清空），暂不自动清除，交由用户操作
     } else {
       setStatus('提交失败：' + (j.error || '未知'), true);
     }
@@ -259,11 +414,12 @@ document.getElementById('submitAllBtn').addEventListener('click', async ()=>{
   }
 });
 
-/* 用户登陆流程保持不变（你原有的实现） */
+/* 用户登陆：现在会把 user_id 保存到 currentUserId，并尝试加载该用户的本地状态（如果已存在） */
 async function ensureUserLoggedIn() {
     try {
       const who = await fetch('/whoami').then(r => r.json());
       if (who.user_id) {
+        currentUserId = who.user_id;
         document.getElementById('user-badge').textContent = '当前标注者：' + who.user_id;
         return true;
       }
@@ -287,28 +443,102 @@ async function ensureUserLoggedIn() {
       alert('设置 user_id 失败：' + (j.error || res.status));
       return false;
     }
+    currentUserId = uid;
     document.getElementById('user-badge').textContent = '当前标注者：' + uid;
     return true;
 }
 
-async function switchUser() {
-  await fetch('/logout_user', {method:'POST'});
-  await ensureUserLoggedIn();
-  if (currentGroupId !== null && currentGroupId !== undefined) loadGroupById(currentGroupId);
+// pick random from unvisitedSet if available, else fallback to 0
+function pickRandomUnvisitedOr0() {
+  if (unvisitedSet && unvisitedSet.size > 0) {
+    const arr = Array.from(unvisitedSet);
+    const pick = arr[Math.floor(Math.random() * arr.length)];
+    return parseInt(pick, 10);
+  }
+  return 0;
 }
 
-/* 重置进度 */
+async function switchUser() {
+  await fetch('/logout_user', {method:'POST'});
+  // 清本地会话数据（内存），避免不同标注者看到对方历史
+  visitedOrder = [];
+  visitedPos = -1;
+  visitedCache = {};
+  localResults = {};
+  groupTimers = {};
+  currentGroup = null;
+  currentOrigId = null;
+  if (currentSortable && typeof currentSortable.destroy === 'function') {
+    try { currentSortable.destroy(); } catch(e){ }
+    currentSortable = null;
+  }
+
+  // 隐藏提交按钮（避免之前用户操作遗留的 UI）
+  const submitBtn = document.getElementById('submitAllBtn');
+  if (submitBtn) submitBtn.style.display = 'none';
+
+  await ensureUserLoggedIn();
+
+  // 确保 totalGroups 已知：若未知则向后端请求一次
+  if (!totalGroups || totalGroups === 0) {
+    try {
+      const resp = await fetch('/get_groups_count');
+      const j = await resp.json();
+      totalGroups = j.total_groups || totalGroups || 0;
+    } catch (e) {
+      // 忽略网络错误（后续会由 loadGroup 报错）
+    }
+  }
+
+  // 先尝试从 localStorage 恢复该 user 的状态
+  const restored = loadStateForUser();
+  if (restored && visitedOrder.length > 0 && visitedPos >= 0) {
+    // 恢复成功：加载游标指向的组（不再 pushHistory）
+    const origToLoad = visitedOrder[visitedPos];
+    // 若 unvisitedSet 为空（因为 totalGroups 之前未知），重建它
+    if ((!unvisitedSet || unvisitedSet.size === 0) && typeof totalGroups === 'number' && totalGroups > 0) {
+      const all = Array.from({length: totalGroups}, (_,i)=>String(i));
+      const visitedSet = new Set(visitedOrder.map(x=>String(x)));
+      unvisitedSet = new Set(all.filter(x => !visitedSet.has(x)));
+    }
+    loadGroupByOrig(origToLoad, {pushHistory:false});
+  } else {
+    // 无本地数据 -> 初始化 unvisitedSet 并加载起始组（默认 0）
+    if (typeof totalGroups === 'number' && totalGroups > 0) {
+      unvisitedSet = new Set(Array.from({length: totalGroups}, (_,i)=>String(i)));
+    } else {
+      unvisitedSet = new Set();
+    }
+    if (totalGroups > 0) {
+      const startOrig = pickRandomUnvisitedOr0();
+      loadGroupByOrig(startOrig, {pushHistory:true});
+    } else {
+      setStatus('无法获取组数，请检查服务器端', true);
+    }
+  }
+}
+
+/* 重置进度（仅客户端状态重置） */
 document.getElementById('resetBtn').addEventListener('click', async ()=>{
   if (!confirm('确定要从头开始标注吗？当前进度将重置，但已提交的结果不会删除。')) return;
-  setStatus('正在重置标注进度...');
+  setStatus('正在重置本地标注进度...');
+  // 调用服务端 /reset_progress（保留），但也重置客户端数据
   try {
     const res = await fetch('/reset_progress', {method:'POST'});
     const j = await res.json();
     if (res.ok && j.success) {
-      setStatus('标注进度已重置，加载第一组');
-      // 清本地记录（只会影响当前客户端）
+      // 清内存与本地持久化
       localResults = {};
-      loadGroupById(0);
+      visitedOrder = [];
+      visitedPos = -1;
+      visitedCache = {};
+      unvisitedSet = new Set(Array.from({length: totalGroups}, (_,i)=>String(i)));
+      groupTimers = {};
+      // 清除 localStorage 对应用户的数据
+      clearStateForUser();
+      setStatus('本地标注进度已重置，加载第一组');
+      const startOrig = pickRandomUnvisitedOr0();
+      loadGroupByOrig(startOrig, {pushHistory:true});
     } else {
       setStatus('重置失败：' + (j.error || '未知'), true);
     }
@@ -317,7 +547,7 @@ document.getElementById('resetBtn').addEventListener('click', async ()=>{
   }
 });
 
-/* 页面载入时行为：先登录 -> 获取总数 -> 加载第1组（id=0） */
+/* 页面载入：登录 -> 获取总数 -> 尝试恢复用户状态 -> 加载合适的组 */
 window.addEventListener('load', async ()=>{
   const ok = await ensureUserLoggedIn();
   if (!ok) return;
@@ -325,10 +555,34 @@ window.addEventListener('load', async ()=>{
     const resp = await fetch('/get_groups_count');
     const j = await resp.json();
     totalGroups = j.total_groups || 0;
-  } catch(e){}
-  // 直接用 client-side 索引加载第 0 组
-  loadGroupById(0);
+  } catch(e){
+    totalGroups = 0;
+  }
+
+  // 先尝试恢复状态（loadStateForUser 需要 currentUserId 已设置）
+  const restored = loadStateForUser();
+  if (restored && visitedOrder.length > 0 && visitedPos >= 0) {
+    // 若 totalGroups 在之前未获知但现在已知，需要修剪 visitedOrder（loadStateForUser 在 totalGroups 可用时已做修剪）
+    const origToLoad = visitedOrder[visitedPos];
+    // 确保 unvisitedSet 根据最新 totalGroups 重建
+    if (typeof totalGroups === 'number' && totalGroups > 0) {
+      const all = Array.from({length: totalGroups}, (_,i)=>String(i));
+      const visitedSet = new Set(visitedOrder.map(x=>String(x)));
+      unvisitedSet = new Set(all.filter(x => !visitedSet.has(x)));
+    }
+    loadGroupByOrig(origToLoad, {pushHistory:false});
+  } else {
+    // 没有本地状态 -> 初始化 unvisitedSet 并加载起始组（默认 0）
+    if (typeof totalGroups === 'number' && totalGroups > 0) {
+      unvisitedSet = new Set(Array.from({length: totalGroups}, (_,i)=>String(i)));
+      const startOrig = pickRandomUnvisitedOr0();
+      loadGroupByOrig(startOrig, {pushHistory:true});
+    } else {
+      setStatus('没有可用的组，请检查服务器端数据', true);
+    }
+  }
 });
 </script>
+
 </body>
 </html>

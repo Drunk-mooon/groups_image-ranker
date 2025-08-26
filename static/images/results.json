@@ -2,6 +2,7 @@
   "user_ids": [
     "34",
     "5",
+    "2",
     "2"
   ],
   "all_data": [
@@ -195,6 +196,71 @@
             ],
             "started_at": null,
             "submitted_at": "2025-08-22T02:29:01.214Z",
+            "time_spent_seconds": null
+          }
+        ]
+      }
+    },
+    {
+      "user_id": "2",
+      "labeled_data": {
+        "0": [
+          {
+            "group_id": 0,
+            "instruction": "hollow-assassin111",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "static/images/img003.jpg",
+              "static/images/img002.jpg",
+              "static/images/hollow knight.jpg"
+            ],
+            "started_at": "2025-08-25T09:52:52.741Z",
+            "submitted_at": "2025-08-25T09:53:08.665Z",
+            "time_spent_seconds": 15.92
+          }
+        ],
+        "1": [
+          {
+            "group_id": 1,
+            "instruction": "stein 2222",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "static/images/img005.jpg",
+              "static/images/img006.jpg",
+              "static/images/assistance.jpg"
+            ],
+            "started_at": null,
+            "submitted_at": "2025-08-25T09:52:55.001Z",
+            "time_spent_seconds": null
+          }
+        ],
+        "2": [
+          {
+            "group_id": 2,
+            "instruction": "goose，33333",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "static/images/img006.jpg",
+              "static/images/celeste.jpg",
+              "static/images/img005.jpg"
+            ],
+            "started_at": null,
+            "submitted_at": "2025-08-25T09:52:56.971Z",
+            "time_spent_seconds": null
+          }
+        ],
+        "3": [
+          {
+            "group_id": 3,
+            "instruction": "44444",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "static/images/img005.jpg",
+              "static/images/img004.jpg",
+              "static/images/img006.jpg"
+            ],
+            "started_at": null,
+            "submitted_at": "2025-08-25T09:52:59.047Z",
             "time_spent_seconds": null
           }
         ]

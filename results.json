@@ -1,0 +1,204 @@
+{
+  "user_ids": [
+    "3",
+    "5",
+    "4"
+  ],
+  "all_data": [
+    {
+      "user_id": "3",
+      "labeled_data": {
+        "0": [
+          {
+            "group_id": 0,
+            "instruction": "hollow-assassin111",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/hollow%20knight.jpg",
+              "/static/images/img002.jpg",
+              "/static/images/img003.jpg"
+            ],
+            "started_at": "2025-08-26T11:33:27.682Z",
+            "submitted_at": "2025-08-26T11:33:34.668Z",
+            "time_spent_seconds": 6.99
+          }
+        ],
+        "1": [
+          {
+            "group_id": 1,
+            "instruction": "stein 2222",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/assistance.jpg"
+            ],
+            "started_at": "2025-08-26T11:33:28.871Z",
+            "submitted_at": "2025-08-26T11:33:42.817Z",
+            "time_spent_seconds": 13.95
+          }
+        ],
+        "2": [
+          {
+            "group_id": 2,
+            "instruction": "goose，33333",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img005.jpg",
+              "/static/images/img006.jpg",
+              "/static/images/celeste.jpg"
+            ],
+            "started_at": "2025-08-26T11:33:32.690Z",
+            "submitted_at": "2025-08-26T11:33:43.183Z",
+            "time_spent_seconds": 10.49
+          }
+        ],
+        "3": [
+          {
+            "group_id": 3,
+            "instruction": "44444",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/img004.jpg"
+            ],
+            "started_at": "2025-08-26T11:33:38.917Z",
+            "submitted_at": "2025-08-26T11:33:46.713Z",
+            "time_spent_seconds": 7.8
+          }
+        ]
+      }
+    },
+    {
+      "user_id": "5",
+      "labeled_data": {
+        "0": [
+          {
+            "group_id": 0,
+            "instruction": "hollow-assassin111",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img003.jpg",
+              "/static/images/img002.jpg",
+              "/static/images/hollow%20knight.jpg"
+            ],
+            "started_at": "2025-08-26T11:39:51.283Z",
+            "submitted_at": "2025-08-26T11:40:26.275Z",
+            "time_spent_seconds": 34.99
+          }
+        ],
+        "1": [
+          {
+            "group_id": 1,
+            "instruction": "stein 2222",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img005.jpg",
+              "/static/images/img006.jpg",
+              "/static/images/assistance.jpg"
+            ],
+            "started_at": "2025-08-26T11:39:56.270Z",
+            "submitted_at": "2025-08-26T11:40:26.638Z",
+            "time_spent_seconds": 30.37
+          }
+        ],
+        "2": [
+          {
+            "group_id": 2,
+            "instruction": "goose，33333",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/celeste.jpg"
+            ],
+            "started_at": "2025-08-26T11:40:02.527Z",
+            "submitted_at": "2025-08-26T11:40:27.753Z",
+            "time_spent_seconds": 25.23
+          }
+        ],
+        "3": [
+          {
+            "group_id": 3,
+            "instruction": "44444",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/img004.jpg"
+            ],
+            "started_at": "2025-08-26T11:40:14.238Z",
+            "submitted_at": "2025-08-26T11:40:33.268Z",
+            "time_spent_seconds": 19.03
+          }
+        ]
+      }
+    },
+    {
+      "user_id": "4",
+      "labeled_data": {
+        "0": [
+          {
+            "group_id": 0,
+            "instruction": "hollow-assassin111",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img002.jpg",
+              "/static/images/img003.jpg",
+              "/static/images/hollow%20knight.jpg"
+            ],
+            "started_at": "2025-08-26T11:53:30.533Z",
+            "submitted_at": "2025-08-26T11:53:31.050Z",
+            "time_spent_seconds": 0.52
+          }
+        ],
+        "1": [
+          {
+            "group_id": 1,
+            "instruction": "stein 2222",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/assistance.jpg"
+            ],
+            "started_at": "2025-08-26T11:53:31.997Z",
+            "submitted_at": "2025-08-26T11:53:39.750Z",
+            "time_spent_seconds": 7.75
+          }
+        ],
+        "2": [
+          {
+            "group_id": 2,
+            "instruction": "goose，33333",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img005.jpg",
+              "/static/images/celeste.jpg",
+              "/static/images/img006.jpg"
+            ],
+            "started_at": "2025-08-26T11:53:28.631Z",
+            "submitted_at": "2025-08-26T11:53:37.670Z",
+            "time_spent_seconds": 9.04
+          }
+        ],
+        "3": [
+          {
+            "group_id": 3,
+            "instruction": "44444",
+            "instruction_cn": "请按风格从 A 到 Z 排序图片",
+            "sorted_images": [
+              "/static/images/img006.jpg",
+              "/static/images/img005.jpg",
+              "/static/images/img004.jpg"
+            ],
+            "started_at": "2025-08-26T11:53:30.060Z",
+            "submitted_at": "2025-08-26T11:53:31.299Z",
+            "time_spent_seconds": 1.24
+          }
+        ]
+      }
+    }
+  ]
+}

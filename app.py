@@ -12,14 +12,22 @@ from flask import Flask, request, session, jsonify
 import random
 from collections import OrderedDict
 import io
+from flask import send_from_directory, abort
+import urllib.parse
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+# 如果你想让 IMAGE_FOLDER 指向 static/images 的绝对路径，重置如下：
+IMAGE_FOLDER = os.path.join(STATIC_DIR, 'images')
+
 
 logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 
 # 全局配置
-IMAGE_FOLDER = 'static/images'   # 默认图片目录（可通过 UI 选择）
-RESULTS_JSON = './results.json'
+# IMAGE_FOLDER = 'static/images'   # 默认图片目录（可通过 UI 选择）
+RESULTS_JSON = os.path.join(BASE_DIR, 'results.json')
 current_directory = None
 
 # groups 数据结构与锁
@@ -66,7 +74,7 @@ def load_groups_from_json_file(directory):
                            'reference_image': ref_img})
         return groups
     except Exception as e:
-        app.logger.error(f"Failed to parse groups.json: {e}")
+        app.logger.error("Failed to parse groups.json: {e}")
         return []
 
 def auto_create_groups_from_directory(directory, group_size=DEFAULT_GROUP_SIZE):
@@ -86,7 +94,7 @@ def auto_create_groups_from_directory(directory, group_size=DEFAULT_GROUP_SIZE):
     for i in range(0, len(image_paths), group_size):
         imgs = image_paths[i:i+group_size]
         groups.append({'id': gid, 
-                       'instruction': f'instruction loss for group {gid}',
+                       'instruction': 'instruction loss for groupF',
                        'instruction_cn': '错误：命令丢失', 
                        'images': imgs})
         gid += 1
@@ -133,14 +141,22 @@ def sort_index():
     return render_template('sort.html')
 
 # ---------- 路由：API ----------
+def fs_path_to_static_url(fs_path):
+    try:
+        fs_path = os.path.normpath(fs_path)
+        static_dir_norm = os.path.normpath(STATIC_DIR)
+        if fs_path.startswith(static_dir_norm):
+            rel = os.path.relpath(fs_path, static_dir_norm).replace('\\', '/')
+            # 对 rel 中的非斜杠字符进行 URL 编码，保留 '/'
+            rel_encoded = urllib.parse.quote(rel, safe="/")
+            return '/static/' + rel_encoded
+    except Exception:
+        pass
+    return None
+
+    
 @app.route('/get_group/<int:group_id>')
 def get_group(group_id):
-    """
-    参数 group_id 表示 presentation index（第几次/第几个被呈现的组）。
-    返回里：
-      - 'id' 为 presentation index（前端用于 prev/next）
-      - 'orig_id' 为固定的原始 group id（来自 groups.json 的顺序）
-    """
     with image_groups_lock:
         if group_id < 0 or group_id >= len(presentation_sequence):
             return jsonify({'error': 'Invalid group_id or no more groups'}), 400
@@ -149,13 +165,30 @@ def get_group(group_id):
         # 每次获取时打乱图片顺序（图片在组内随机）
         images_copy = g.get('images', []).copy()
         random.shuffle(images_copy)
+
+        # convert filesystem paths -> URLs for browser
+        images_urls = []
+        for p in images_copy:
+            url = fs_path_to_static_url(p)
+            if url:
+                images_urls.append(url)
+            else:
+                # 回退：如果图片不在 static 下，使用 serve_image 动态路由（会传文件系统路径）
+                # 需要 urlencode，浏览器端会 decode
+                images_urls.append('/serve_image?path=' + urllib.parse.quote(p, safe=''))
+
+        ref = g.get('reference_image', '')
+        ref_url = None
+        if ref:
+            ref_url = fs_path_to_static_url(ref) or ('/serve_image?path=' + urllib.parse.quote(ref, safe=''))
+
         return jsonify({
-            'id': group_id,                     # presentation index（用于导航）
-            'orig_id': g.get('id'),             # 固定原始组 id（用于保存）
+            'id': group_id,
+            'orig_id': g.get('id'),
             'instruction': g.get('instruction', ''),
             'instruction_cn': g.get('instruction_cn', ''),
-            'images': images_copy,
-            'reference_image': g.get('reference_image', ''),
+            'images': images_urls,
+            'reference_image': ref_url,
             'total_groups': len(presentation_sequence)
         })
 
@@ -214,33 +247,43 @@ def submit_group():
         app.logger.info(f'Saved group {group_id} result by {user_id} to {results_file}')
         return jsonify({'success': True})
     except Exception as e:
-        app.logger.error(f'Failed to save results: {e}')
+        app.logger.error('Failed to save results: {e}')
         return jsonify({'error': str(e)}), 500
 
 @app.route('/get_groups_count')
 def get_groups_count():
     with image_groups_lock:
-        return jsonify({'total_groups': len(presentation_sequence), 'current_index': current_group_index})
+        return jsonify({'total_groups': len(image_groups)})
+
+import mimetypes
+from flask import send_file, abort
 
 @app.route('/serve_image')
 def serve_image():
     image_path = request.args.get('path')
     if not image_path:
         return jsonify({'error': 'No path provided'}), 400
-    # 浏览器端会传入 encodeURIComponent 的路径
+
     image_path = image_path
-    # 如果前端传来的路径是以 /serve_image 开头（历史问题），尝试修复
     if image_path.startswith('/serve_image'):
         image_path = image_path.split('=', 1)[1]
     image_path = os.path.normpath(image_path).replace('\\', '/')
+
     if not os.path.exists(image_path):
         return jsonify({'error': f'File not found: {image_path}'}), 404
-    file_extension = os.path.splitext(image_path)[1].lower()
-    if file_extension == '.webp':
-        mimetype = 'image/webp'
-    else:
-        mimetype = 'image/jpeg'
-    return send_file(image_path, mimetype=mimetype)
+
+    # 自动猜 MIME 类型（比单硬编码可靠）
+    mime, _ = mimetypes.guess_type(image_path)
+    # 如果没猜到则让 send_file 自行处理或回退到通用类型
+    if not mime:
+        mime = 'application/octet-stream'
+
+    # 使用 conditional=True 支持 Range 请求（移动端常用）
+    try:
+        return send_file(image_path, mimetype=mime, conditional=True)
+    except Exception as e:
+        app.logger.exception("send_file failed for %s", image_path)
+        return jsonify({'error': str(e)}), 500
 
 # 选择目录（保留原有的 tkinter 弹窗机制）
 @app.route('/select_directory', methods=['POST'])
@@ -274,6 +317,43 @@ def open_directory_dialog():
     directory = filedialog.askdirectory(master=root)
     root.destroy()
     return directory
+
+@app.route('/get_group_by_orig/<int:orig_id>')
+def get_group_by_orig(orig_id):
+    """按 groups.json 中的原始 group id 获取组（不再在每次请求时打乱图片顺序）。
+       返回字段中使用 'orig_id' 表示该组的固定 id。
+    """
+    with image_groups_lock:
+        found = None
+        for g in image_groups:
+            if g.get('id') == orig_id:
+                found = g
+                break
+        if found is None:
+            return jsonify({'error': 'Invalid orig_id'}), 400
+
+        images = found.get('images', []).copy()  # 不在这里打乱——保证稳定
+        images_urls = []
+        for p in images:
+            url = fs_path_to_static_url(p)
+            if url:
+                images_urls.append(url)
+            else:
+                images_urls.append('/serve_image?path=' + urllib.parse.quote(p, safe=''))
+
+        ref = found.get('reference_image', '')
+        ref_url = None
+        if ref:
+            ref_url = fs_path_to_static_url(ref) or ('/serve_image?path=' + urllib.parse.quote(ref, safe=''))
+
+        return jsonify({
+            'orig_id': found.get('id'),
+            'instruction': found.get('instruction', ''),
+            'instruction_cn': found.get('instruction_cn', ''),
+            'images': images_urls,
+            'reference_image': ref_url,
+            'total_groups': len(image_groups)
+        })
 
 @app.route('/reset_progress', methods=['POST'])
 def reset_progress():
@@ -394,10 +474,10 @@ def submit_all():
         with open(results_path, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
-        app.logger.info(f"Saved {len(results)} results for user {user_id} to {results_path}")
+        app.logger.info("Saved {len(results)} results for user {user_id} to {results_path}")
         return jsonify({'success': True, 'saved_to': results_path})
     except Exception as e:
-        app.logger.error(f'Failed to save results (json): {e}', exc_info=True)
+        app.logger.error('Failed to save results (json): {e}', exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -421,6 +501,8 @@ def export_results():
     if not os.path.exists(results_file):
         return jsonify({'error': 'No results file found'}), 404
     return send_file(results_file, as_attachment=True, attachment_filename='results.csv')
+
+initialize_image_groups(IMAGE_FOLDER)
 
 # ---------- 程序入口 ----------
 if __name__ == '__main__':
